@@ -33,6 +33,7 @@ int main(int argc, char *argv[])
   int source, destination;
   
   memset(buffer, 0, BUFSIZE); //reset memory
+  memset(packet, 0, PCKT_SIZE);
 
   if (argc < 2) {
     fprintf(stderr,"ERROR, missing port number\n");
@@ -64,7 +65,9 @@ int main(int argc, char *argv[])
 
   //read client's message, which should just be the filename
   strncpy(filename, buffer, recvlen + 1);
-  filename[recvlen + 1] = '\0';   //depends on sizeof or strlen
+  //filename[recvlen + 1] = '\0';   //depends on sizeof or strlen
+  printf("%s\n", buffer);
+  printf("%s\n", filename);
 
   //create packet header - prelim source, dest. port + length of header + content
   /*source = serv_addr.sin_port;
@@ -80,17 +83,31 @@ int main(int argc, char *argv[])
       error("ERROR sending message");
   }
 
+  //Find size of the file
+  /* int beginning = lseek(file_fd, 0, SEEK_CUR);
+  int file_length = lseek(file_fd, 0, SEEK_END);
+  lseek(file_fd, beginning, SEEK_SET);
+
+  n = read(file_fd, packet, file_length);
+
+  printf("%s", packet);
+  
+  */
+  
   int data = false;
   
   //send multiple packets
   while (data == false) {
+
+    printf("Sending a new packet.\n");
   
     int count = 0;
     int i = 0;
   
     //read data to packet buffer
     for (i = 0; i != PCKT_SIZE; i++) {
-      n = read(file_fd, packet, 1);
+      n = read(file_fd, packet + i, 1);
+      //printf("%s\n", packet);
       if (n == 0) { //reached EOF
 	data = true;
 	break;
@@ -99,9 +116,9 @@ int main(int argc, char *argv[])
 	error("ERROR writing to packet buffer");
       count++;
     }
-  
+
     n = sendto(sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &cli_addr, clilen);
-  }
+   }
   
   //close connection
   close(sockfd);
