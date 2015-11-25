@@ -21,7 +21,7 @@ void error(char *message) {
 
 int main(int argc, char* argv[]) {
     int socketfd, port_number, current;
-    struct sockaddr_in server_addr;
+    struct sockaddr_in server_address;
     struct hostent *server;
     char *host_name, *file_name;
     double loss, corruption;
@@ -56,7 +56,7 @@ int main(int argc, char* argv[]) {
     }
 
     // set server information
-    if((server = gethostbyname(hostname)) == NULL)
+    if((server = gethostbyname(host_name)) == NULL)
     {
         error("ERROR no such host\n");
         exit(1);
@@ -68,17 +68,17 @@ int main(int argc, char* argv[]) {
     //IPv4
     server_address.sin_family = AF_INET;
 
-    memcopy((char *) &server_address.sin_addr.s_addr,(char *) server->h_addr, server->h_length);
+    memcpy((char *) &server_address.sin_addr.s_addr,(char *) server->h_addr, server->h_length);
     server_address.sin_port = htons(port_number);
 
    
     // send request
-    if (sendto(sockfd, file_name, sizeof(file_name), 0, (struct sockaddr*) &server_address, server_length) < 0)\
+    if (sendto(socketfd, file_name, sizeof(file_name), 0, (struct sockaddr*) &server_address, server_length) < 0)\
     {
         error("ERROR sending request\n");
     }
 
     printf("Exiting client\n");
-    close(sockfd);
+    close(socketfd);
     return 0;
 }
