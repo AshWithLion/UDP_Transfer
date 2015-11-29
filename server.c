@@ -22,6 +22,8 @@
 #define ACK 2
 #define FIN 3
 
+const char* NO_FILE_MSG ="Error: File does not exist.";
+
 
 void error(char *msg)
 {
@@ -45,8 +47,13 @@ int main(int argc, char *argv[])
   int n;
   char buffer[PCKT_SIZE];
   char filename[MAX_PAYLOAD];
+
+  //change this into an arg later
+  int CWnd = 100;
+  int CWnd_thresh = 1;
   
   memset(buffer, 0, PCKT_SIZE); //reset memory
+  memset(filename, 0, MAX_PAYLOAD);
 
   if (argc < 2) {
     fprintf(stderr,"ERROR, missing port number\n");
@@ -81,15 +88,29 @@ int main(int argc, char *argv[])
   int i;
   for (i = 0; i != header->size; i++)
     filename[i] = payload[i];    //get filename
+
+  //create packet for transmission
+  char packet[PCKT_SIZE];
+  memset(packet, 0, PCKT_SIZE);
+
+  header = (header_t*) (&packet);
+  payload = packet + 4;
   
   //get file
   int file_fd;
   file_fd = open(filename, O_RDONLY);
-  if (file_fd < 0)
-    error("Error: File does not exist.");
+  if (file_fd < 0) {
     //send message to client
-    //n = sendto(sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &cli_addr, clilen);
+    header->type = FIN;
+    header->seq_num = 1;
+    header->size = strlen(NO_FILE_MSG);
+    strcpy(payload, NO_FILE_MSG);
+    n = sendto(sockfd, packet, (header->size) + 2, 0, (struct sockaddr *) &cli_addr, clilen);
 
+    //throw error
+    error("Error: File does not exist.");  
+  }
+  
   //find size of the file
   int beginning = lseek(file_fd, 0, SEEK_CUR);
   int file_length = lseek(file_fd, 0, SEEK_END);
@@ -97,16 +118,40 @@ int main(int argc, char *argv[])
 
   int packet_count = 1;
   int data_count = 0;
+  int current_ACK = 1;
+  int dup_ACK = 0;
 
   //send packets until no more data is left in the file
   while (data_count != file_length) {  
 
-    char packet[PCKT_SIZE];
-    memset(packet, 0, PCKT_SIZE);
-  
-    payload = packet + 4;
-    header = (header_t*) (&packet);
+    //receive ACKS from client, move window forward
+    memset(buffer, 0, PCKT_SIZE); 
+    n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
+    if (n < 0)
+      error("ERROR receiving ACK from client");
+    
+    header_t* rcv_header = (header_t*) (&buffer);
+    printf("Received ACK %i\n", rcv_header->seq_num);
 
+    if (current_ACK == rcv_header->seq_num)
+      dup_ACK++;
+
+    //TODO: implement Go-Back-N protocol
+    if (dup_ACK == 3) {
+      //do stuff
+    }
+
+    current_ACK == rcv_header->seq_num;
+
+    CWnd_thresh = rcv_header->seq_num;
+    
+    
+    //if window is not moving, wait.
+    if (header->seq_num > (CWnd + CWnd_thresh - 1))
+      continue;
+    
+    memset(packet, 0, PCKT_SIZE);
+    
     //fill in header information
     header->type = DATA;
     header->seq_num = packet_count;
@@ -127,11 +172,13 @@ int main(int argc, char *argv[])
     header->size = i;
 
     //send packet to client based on payload size + 2 bytes of header
-    n = sendto(sockfd, packet, header->size + 2, 0, (struct sockaddr *) &cli_addr, clilen);
+    n = sendto(sockfd, packet, (header->size) + 2, 0, (struct sockaddr *) &cli_addr, clilen);
     if (n < 0)
       error("ERROR on packet send.");
 
-    //increase seq_no count
+    printf("Sent packet number %i\n", header->seq_num);
+    
+    //increase seq_num count
     packet_count++;
   }
   
