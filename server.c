@@ -7,12 +7,20 @@
 #include <signal.h>/* signal name macros, and the kill() prototype */
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <stdio.h>
 
-#define BUFSIZE 2048
-#define MAXFILENAMESIZE 256
 #define PCKT_SIZE 1000
+#define MAX_PAYLOAD 996
+
+//Booleans
 #define true 1
 #define false 0
+
+//Define TYPE of packet
+#define REQ 0      //initial request
+#define DATA 1
+#define ACK 2
+#define FIN 3
 
 
 void error(char *msg)
@@ -21,19 +29,24 @@ void error(char *msg)
   exit(1);
 }
 
+//Stores header information of packet into 2 bytes
+//at the beginning of each character array packet
+typedef struct header {
+  unsigned int type:2;
+  unsigned int seq_num:20; //sequence number of packet sent
+  unsigned int size:10;    //size of payload
+} header_t;
+
 int main(int argc, char *argv[])
 {
   int sockfd, portno, recvlen;
   socklen_t clilen;
   struct sockaddr_in serv_addr, cli_addr;
   int n;
-  char buffer[BUFSIZE];
-  char filename[MAXFILENAMESIZE];
-  char packet[PCKT_SIZE];
-  int source, destination;
+  char buffer[PCKT_SIZE];
+  char filename[MAX_PAYLOAD];
   
-  memset(buffer, 0, BUFSIZE); //reset memory
-  memset(packet, 0, PCKT_SIZE);
+  memset(buffer, 0, PCKT_SIZE); //reset memory
 
   if (argc < 2) {
     fprintf(stderr,"ERROR, missing port number\n");
@@ -58,67 +71,69 @@ int main(int argc, char *argv[])
 
   clilen = sizeof(cli_addr);
 
-  //receive client message, store into buffer
-  recvlen = recvfrom(sockfd, buffer, BUFSIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
-  if (recvlen < 0)
-    error("ERROR receiving request");
+  //receive initial request from client
+  recvlen = recvfrom(sockfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
 
-  //read client's message, which should just be the filename
-  strncpy(filename, buffer, recvlen + 1);
-  //filename[recvlen + 1] = '\0';   //depends on sizeof or strlen
-  printf("%s\n", buffer);
-  printf("%s\n", filename);
+  //extract header + payload info from buffer
+  header_t* header = (header_t*) (&buffer);
+  char* payload = buffer + 4;
 
-  //create packet header - prelim source, dest. port + length of header + content
-  /*source = serv_addr.sin_port;
-    destination = cli_addr.sin_port; */
+  int i;
+  for (i = 0; i != header->size; i++)
+    filename[i] = payload[i];    //get filename
   
   //get file
   int file_fd;
   file_fd = open(filename, O_RDONLY);
-  if (file_fd < 0) {
-    strcpy(packet, "Error: File does not exist.");
-    n = sendto(sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &cli_addr, clilen);
-    if (n < 0)
-      error("ERROR sending message");
-  }
+  if (file_fd < 0)
+    error("Error: File does not exist.");
+    //send message to client
+    //n = sendto(sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &cli_addr, clilen);
 
-  //Find size of the file
-  /* int beginning = lseek(file_fd, 0, SEEK_CUR);
+  //find size of the file
+  int beginning = lseek(file_fd, 0, SEEK_CUR);
   int file_length = lseek(file_fd, 0, SEEK_END);
   lseek(file_fd, beginning, SEEK_SET);
 
-  n = read(file_fd, packet, file_length);
+  int packet_count = 1;
+  int data_count = 0;
 
-  printf("%s", packet);
-  
-  */
-  
-  int data = false;
-  
-  //send multiple packets
-  while (data == false) {
+  //send packets until no more data is left in the file
+  while (data_count != file_length) {  
 
-    printf("Sending a new packet.\n");
+    char packet[PCKT_SIZE];
+    memset(packet, 0, PCKT_SIZE);
   
-    int count = 0;
-    int i = 0;
-  
-    //read data to packet buffer
-    for (i = 0; i != PCKT_SIZE; i++) {
-      n = read(file_fd, packet + i, 1);
-      //printf("%s\n", packet);
-      if (n == 0) { //reached EOF
-	data = true;
+    payload = packet + 4;
+    header = (header_t*) (&packet);
+
+    //fill in header information
+    header->type = DATA;
+    header->seq_num = packet_count;
+
+    //read contents of file into payload until EOF or MAX_PAYLOAD
+    for (i = 0; i != MAX_PAYLOAD; i++) {
+      n = read(file_fd, payload + i, 1);
+      if (n < 0)
+	error("ERROR reading file into payload buffer.");
+      //reached EOF
+      if (n == 0){
+	header->type = FIN;
 	break;
       }
-      if (n < 0)
-	error("ERROR writing to packet buffer");
-      count++;
+      data_count++;
     }
+    
+    header->size = i;
 
-    n = sendto(sockfd, packet, sizeof(packet), 0, (struct sockaddr *) &cli_addr, clilen);
-   }
+    //send packet to client based on payload size + 2 bytes of header
+    n = sendto(sockfd, packet, header->size + 2, 0, (struct sockaddr *) &cli_addr, clilen);
+    if (n < 0)
+      error("ERROR on packet send.");
+
+    //increase seq_no count
+    packet_count++;
+  }
   
   //close connection
   close(sockfd);
