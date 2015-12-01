@@ -82,18 +82,18 @@ int main(int argc, char *argv[])
   recvlen = recvfrom(sockfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
 
   //extract header + payload info from buffer
-  header_t* header = (header_t*) (&buffer);
+  header_t* rcv_header = (header_t*) (&buffer);
   char* payload = buffer + 4;
-
+  
   int i;
-  for (i = 0; i != header->size; i++)
+  for (i = 0; i != rcv_header->size; i++)
     filename[i] = payload[i];    //get filename
 
   //create packet for transmission
   char packet[PCKT_SIZE];
   memset(packet, 0, PCKT_SIZE);
 
-  header = (header_t*) (&packet);
+  header_t* header = (header_t*) (&packet);
   payload = packet + 4;
   
   //get file
@@ -123,35 +123,43 @@ int main(int argc, char *argv[])
   
   int packets_in_flight = 0;
   int data_count = 0;
-  int current_ACK = 1;
   int dup_ACK = 0;
 
+  rcv_header->seq_num = 0;
+
   //send packets until no more data is left in the file
-  while (rcv_header->seq_num != (file_length+1)) {  
+  while (rcv_header->seq_num != (file_length+1)) {
+
+    int old_rcv = rcv_header->seq_num;
 
     //once all packets in window sent, check for ACK
     if (packets_in_flight == CWnd) {
-    memset(buffer, 0, PCKT_SIZE); 
-    n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
-    if (n < 0)
-      error("ERROR receiving ACK from client");
+      
+      memset(buffer, 0, PCKT_SIZE); 
+      n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
+      if (n < 0)
+	error("ERROR receiving ACK from client");
+    
+      printf("Received ACK %i\n", rcv_header->seq_num);
 
-    header_t* rcv_header = (header_t*) (&buffer);
-    printf("Received ACK %i\n", rcv_header->seq_num);
-
-    CWnd_thresh += 1;
-    packets_in_flight--;
-
+      if (rcv_header->seq_num == old_rcv) {
+	dup_ACK++;
+	if (dup_ACK == 3) {
+	  //go-back-n retransmission
+	  packets_in_flight = 0;
+	  data_count = rcv_header->seq_num;
+	  dup_ACK = 0;
+	}
+      }
+      //cumulative ACKs
+      //else if (rcv_header->seq_num < old_rcv)
+      //rcv_header->seq_num;
+      else {
+	CWnd_thresh += 1;
+	packets_in_flight--;
+      }
     }
 
-    /* if (current_ACK == rcv_header->seq_num)
-      dup_ACK++;
-
-    //TODO: implement Go-Back-N protocol
-    if (dup_ACK == 3) {
-      //do stuff
-    }
-    */
     memset(packet, 0, PCKT_SIZE);
     
     //fill in header information
