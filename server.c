@@ -8,7 +8,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <fcntl.h>
-#include <stdio.h>
+#include <unistd.h>
 
 #define PCKT_SIZE 1000
 #define MAX_PAYLOAD 996
