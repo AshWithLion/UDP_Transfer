@@ -6,6 +6,7 @@
 #include <string.h>
 #include <signal.h>/* signal name macros, and the kill() prototype */
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <stdio.h>
 
@@ -51,6 +52,11 @@ int main(int argc, char *argv[])
   //change this into an arg later
   int CWnd = 100;
   int CWnd_thresh = 1;
+
+  //timeout variables
+  struct timeval timeout;
+  timeout.tv_sec = 3;
+  timeout.tv_usec = 0;
   
   memset(buffer, 0, PCKT_SIZE); //reset memory
   memset(filename, 0, MAX_PAYLOAD);
@@ -124,10 +130,11 @@ int main(int argc, char *argv[])
   int packets_in_flight = 0;
   int data_count = 0;
   int dup_ACK = 0;
+  int timeout_occurred = false;
 
   rcv_header->seq_num = 0;
 
-  //send packets until no more data is left in the file
+  //send packets until last ACK is received
   while (rcv_header->seq_num != (file_length+1)) {
 
     int old_rcv = rcv_header->seq_num;
@@ -135,26 +142,31 @@ int main(int argc, char *argv[])
     //once all packets in window sent, check for ACK
     if (packets_in_flight == CWnd) {
       
-      memset(buffer, 0, PCKT_SIZE); 
+      memset(buffer, 0, PCKT_SIZE);
+
+      //set flag for timeout
+      if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
+	timeout_occurred = true;
+
+      
       n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
       if (n < 0)
 	error("ERROR receiving ACK from client");
     
       printf("Received ACK %i\n", rcv_header->seq_num);
 
-      if (rcv_header->seq_num == old_rcv) {
+      if (rcv_header->seq_num == old_rcv)
 	dup_ACK++;
-	if (dup_ACK == 3) {
-	  //go-back-n retransmission
-	  packets_in_flight = 0;
-	  data_count = rcv_header->seq_num;
-	  dup_ACK = 0;
-	}
+      
+      if (dup_ACK == 3 || timeout_occurred) {
+	//go-back-n retransmission
+	packets_in_flight = 0;
+	data_count = rcv_header->seq_num;
+	printf("Duplicate ACKs received. Retransmitting window from byte number %i", data_count);
+	dup_ACK = 0;
+	timeout_occurred = false;
       }
-      //cumulative ACKs
-      //else if (rcv_header->seq_num < old_rcv)
-      //rcv_header->seq_num;
-      else {
+      else if (rcv_header->seq_num != old_rcv) {
 	CWnd_thresh += 1;
 	packets_in_flight--;
       }
