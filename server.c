@@ -169,6 +169,7 @@ int main(int argc, char *argv[])
       else if (rcv_header->seq_num != old_rcv) {
 	CWnd_thresh += 1;
 	packets_in_flight--;
+	dup_ACK = 0;
       }
     }
 
