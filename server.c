@@ -116,59 +116,58 @@ int main(int argc, char *argv[])
   int file_length = lseek(file_fd, 0, SEEK_END);
   lseek(file_fd, beginning, SEEK_SET);
 
-  int packet_count = 1;
+  //store file contents into temp buffer
+  char file_data[file_length];
+  memset(file_data, 0, file_length);
+  n = read(file_fd, file_data, file_length);
+  
+  int packets_in_flight = 0;
   int data_count = 0;
   int current_ACK = 1;
   int dup_ACK = 0;
 
   //send packets until no more data is left in the file
-  while (data_count != file_length) {  
+  while (rcv_header->seq_num != (file_length+1)) {  
 
-    //receive ACKS from client, move window forward
+    //once all packets in window sent, check for ACK
+    if (packets_in_flight == CWnd) {
     memset(buffer, 0, PCKT_SIZE); 
     n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
     if (n < 0)
       error("ERROR receiving ACK from client");
-    
+
     header_t* rcv_header = (header_t*) (&buffer);
     printf("Received ACK %i\n", rcv_header->seq_num);
 
-    if (current_ACK == rcv_header->seq_num)
+    CWnd_thresh += 1;
+    packets_in_flight--;
+
+    }
+
+    /* if (current_ACK == rcv_header->seq_num)
       dup_ACK++;
 
     //TODO: implement Go-Back-N protocol
     if (dup_ACK == 3) {
       //do stuff
     }
-
-    current_ACK == rcv_header->seq_num;
-
-    CWnd_thresh = rcv_header->seq_num;
-    
-    
-    //if window is not moving, wait.
-    if (header->seq_num > (CWnd + CWnd_thresh - 1))
-      continue;
-    
+    */
     memset(packet, 0, PCKT_SIZE);
     
     //fill in header information
     header->type = DATA;
-    header->seq_num = packet_count;
-
+    header->seq_num = data_count;
+    
     //read contents of file into payload until EOF or MAX_PAYLOAD
     for (i = 0; i != MAX_PAYLOAD; i++) {
-      n = read(file_fd, payload + i, 1);
-      if (n < 0)
-	error("ERROR reading file into payload buffer.");
       //reached EOF
-      if (n == 0){
+      if (data_count == file_length){
 	header->type = FIN;
 	break;
       }
+      packet[i] = file_data[data_count];
       data_count++;
     }
-    
     header->size = i;
 
     //send packet to client based on payload size + 2 bytes of header
@@ -176,10 +175,9 @@ int main(int argc, char *argv[])
     if (n < 0)
       error("ERROR on packet send.");
 
-    printf("Sent packet number %i\n", header->seq_num);
+    printf("Sent packet sequence number %i\n", header->seq_num);
+    packets_in_flight++;
     
-    //increase seq_num count
-    packet_count++;
   }
   
   //close connection
