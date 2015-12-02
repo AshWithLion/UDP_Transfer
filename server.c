@@ -42,6 +42,7 @@ typedef struct header {
 
 int main(int argc, char *argv[])
 {
+  
   int sockfd, portno, recvlen;
   socklen_t clilen;
   struct sockaddr_in serv_addr, cli_addr;
@@ -55,9 +56,9 @@ int main(int argc, char *argv[])
 
   //timeout variables
   struct timeval timeout;
-  timeout.tv_sec = 3;
+  timeout.tv_sec = 10;
   timeout.tv_usec = 0;
-  
+
   memset(buffer, 0, PCKT_SIZE); //reset memory
   memset(filename, 0, MAX_PAYLOAD);
 
@@ -65,7 +66,7 @@ int main(int argc, char *argv[])
     fprintf(stderr,"ERROR, missing port number\n");
     exit(1);
   }
-
+  
   //create a UDP socket
   sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0)
@@ -84,24 +85,28 @@ int main(int argc, char *argv[])
 
   clilen = sizeof(cli_addr);
 
-  //receive initial request from client
+  
+  //receive initial request from client   
   recvlen = recvfrom(sockfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
-
+  
   //extract header + payload info from buffer
   header_t* rcv_header = (header_t*) (&buffer);
   char* payload = buffer + 4;
-  
+
   int i;
   for (i = 0; i != rcv_header->size; i++)
     filename[i] = payload[i];    //get filename
 
+  printf("%s\n", payload);
+
+  /*
   //create packet for transmission
   char packet[PCKT_SIZE];
   memset(packet, 0, PCKT_SIZE);
 
   header_t* header = (header_t*) (&packet);
   payload = packet + 4;
-  
+
   //get file
   int file_fd;
   file_fd = open(filename, O_RDONLY);
@@ -114,9 +119,9 @@ int main(int argc, char *argv[])
     n = sendto(sockfd, packet, (header->size) + 2, 0, (struct sockaddr *) &cli_addr, clilen);
 
     //throw error
-    error("Error: File does not exist.");  
+    error("Error: File does not exist.");
   }
-  
+
   //find size of the file
   int beginning = lseek(file_fd, 0, SEEK_CUR);
   int file_length = lseek(file_fd, 0, SEEK_END);
@@ -126,7 +131,7 @@ int main(int argc, char *argv[])
   char file_data[file_length];
   memset(file_data, 0, file_length);
   n = read(file_fd, file_data, file_length);
-  
+
   int packets_in_flight = 0;
   int data_count = 0;
   int dup_ACK = 0;
@@ -141,23 +146,23 @@ int main(int argc, char *argv[])
 
     //once all packets in window sent, check for ACK
     if (packets_in_flight == CWnd) {
-      
+
       memset(buffer, 0, PCKT_SIZE);
 
       //set flag for timeout
       if (setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0)
 	timeout_occurred = true;
 
-      
+
       n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
       if (n < 0)
 	error("ERROR receiving ACK from client");
-    
+
       printf("Received ACK %i\n", rcv_header->seq_num);
 
       if (rcv_header->seq_num == old_rcv)
 	dup_ACK++;
-      
+
       if (dup_ACK == 3 || timeout_occurred) {
 	//go-back-n retransmission
 	packets_in_flight = 0;
@@ -174,11 +179,11 @@ int main(int argc, char *argv[])
     }
 
     memset(packet, 0, PCKT_SIZE);
-    
+
     //fill in header information
     header->type = DATA;
     header->seq_num = data_count;
-    
+
     //read contents of file into payload until EOF or MAX_PAYLOAD
     for (i = 0; i != MAX_PAYLOAD; i++) {
       //reached EOF
@@ -198,12 +203,11 @@ int main(int argc, char *argv[])
 
     printf("Sent packet sequence number %i\n", header->seq_num);
     packets_in_flight++;
-    
+
   }
-  
+  */
   //close connection
   close(sockfd);
-
+  
   return 0;
 }
-
