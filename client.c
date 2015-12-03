@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,11 +13,8 @@
 #include <sys/socket.h>
 
 #define PCKT_SIZE 1000
-#define MAX_PAYLOAD 5
-
-//Booleans
-#define true 1
-#define false 0
+#define MAX_PAYLOAD 996
+#define HEADER_SIZE 4
 
 //Define TYPE of packet
 #define REQ 0      //initial request
@@ -79,7 +77,7 @@ int main(int argc, char* argv[]) {
   server_address.sin_port = htons(port_number);
 
   header_t* head = (header_t*) &buffer;
-  char* payload = buffer + 4;
+  char* payload = buffer + HEADER_SIZE;
 
   head->type = REQ;
   head->seq_num = 0;
@@ -87,14 +85,14 @@ int main(int argc, char* argv[]) {
   head->size = strlen(payload);
   
   // send the request
-  if (sendto(socketfd, buffer, head->size + 4, 0, (struct sockaddr*) &server_address, server_length) < 0)
+  if (sendto(socketfd, buffer, head->size + HEADER_SIZE, 0, (struct sockaddr*) &server_address, server_length) < 0)
       error("ERROR sending request\n");
 
   file_fd = open(file_name, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
   if (file_fd < 0)
     error("Error creating file to read into.");
 
-  char* ACK_packet[4];
+  char* ACK_packet[HEADER_SIZE];
   header_t* ACK_head = (header_t*) &ACK_packet;
   int ACK_number = 0;
   srand(time(0));
@@ -110,40 +108,42 @@ int main(int argc, char* argv[]) {
     
     recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
 
-    printf("Packet sequence number %i", head->seq_num);
+    printf("Received packet with sequence number %i.\n", head->seq_num);
     
-    if (loss >= r)
+    if (loss >= r) {
       printf("Packet with sequence number %i lost.\n", head->seq_num);
-    else if (corruption >= r)
+      continue;
+    }
+    else if (corruption >= r) 
       printf("Packet with sequence number %i corrupted.\n", head->seq_num);
     else if (head->seq_num == ACK_number) {
       printf("Received a packet!\n");  
       n = write(file_fd, payload, head->size);
 
       ACK_number = head->seq_num + head->size;
-      printf("Sending ACK %i\n", ACK_number);
+      printf("Sending ACK %i.\n", ACK_number);
     
       //send an ACK
       ACK_head->seq_num = ACK_number;
 
-      if (head->type = FIN) {
-	printf("Leaving the loop.");
+      if (head->type == FIN) {
+	printf("FIN packet has sequence number %i.\n", ACK_head->seq_num);
 	break;
       }
     }
     else {
       //Ignore all out of sequence packets
-      printf("Duplicate ACK. Still expecting packet %i", ACK_head->seq_num);
+      printf("Duplicate ACK. Still expecting packet %i.\n", ACK_head->seq_num);
     }
     
-    n = sendto(socketfd, ACK_packet, 4, 0, (struct sockaddr *) &server_address, server_length);
+    n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
 
-    memset(buffer, 0, PCKT_SIZE);
+    printf("\n");
   }
 
   do {
-    n = sendto(socketfd, ACK_packet, 4, 0, (struct sockaddr *) &server_address, server_length);
-    recv = recvfrom(socketfd, buffer, 4, 0, (struct sockaddr *) &server_address, &server_length);
+    n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
+    recv = recvfrom(socketfd, buffer, HEADER_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
   } while (head->type != ACK);
  
   close(socketfd);
