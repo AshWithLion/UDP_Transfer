@@ -10,10 +10,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
+#include <errno.h>
 
 #define PCKT_SIZE 1000
-#define MAX_PAYLOAD 3
-#define TIMEOUT 15000
+#define MAX_PAYLOAD 5
 
 //Booleans
 #define true 1
@@ -51,27 +51,23 @@ int main(int argc, char *argv[])
   char buffer[PCKT_SIZE];
   char filename[20];
 
-  //change this into an arg later
-  int CWnd = atoi(argv[2]);
-  int pckt_corr = atoi(argv[3]);
-  int pckt_loss = atoi(argv[4]);
-  printf("Packet corruption percentage: %i\n", pckt_corr);
-  int CWnd_thresh = 1;
-
-  //timeout variables
-  struct timespec start;
-  struct timespec end;
-
-  memset(buffer, 0, PCKT_SIZE); //reset memory
-  memset(filename, 0, 20);
-
-  if (argc < 2) {
+  if (argc < 5) {
     fprintf(stderr,"ERROR, missing port number\n");
     exit(1);
   }
   
+  //change this into an arg later
+  int CWnd = atoi(argv[2]);
+  int pckt_loss = atoi(argv[3]);
+  int pckt_corr = atoi(argv[4]);
+  printf("Packet corruption percentage: %i\n", pckt_corr);
+  int CWnd_thresh = 1;
+  
+  memset(buffer, 0, PCKT_SIZE); //reset memory
+  memset(filename, 0, 20);
+  
   //create a UDP socket
-  sockfd = socket(AF_INET, SOCK_DGRAM | O_NONBLOCK, 0);
+  sockfd = socket(AF_INET, SOCK_DGRAM, 0);
   if (sockfd < 0)
     error("ERROR opening socket");
 
@@ -89,9 +85,8 @@ int main(int argc, char *argv[])
   clilen = sizeof(cli_addr);
   
   //receive initial request from client
-  do {
   recvlen = recvfrom(sockfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &cli_addr, &clilen);
-  } while (recvlen < 0);
+  
   
   //extract header + payload info from buffer
   header_t* rcv_header = (header_t*) (&buffer);
@@ -116,8 +111,7 @@ int main(int argc, char *argv[])
     header->size = strlen(NO_FILE_MSG);
     strcpy(payload, NO_FILE_MSG);
 
-    n = sendto(sockfd, packet, (header->size) + 2, 0, (struct sockaddr *) &cli_addr, clilen);
-    
+    n = sendto(sockfd, packet, (header->size) + 4, 0, (struct sockaddr *) &cli_addr, clilen);
 
     //throw error
     error("Error: File does not exist.");
@@ -133,51 +127,62 @@ int main(int argc, char *argv[])
   memset(file_data, 0, file_length);
   n = read(file_fd, file_data, file_length);
 
-  printf("%s\n%i\n", file_data, file_length);
+  //printf("%s\n%i\n", file_data, file_length);
   
   
   int packets_in_flight = 0;
   int data_count = 0;
   int dup_ACK = 0;
   int timeout_occurred = 0;
-  int first_packet = 1;
+  int latest_ACK = 0;
   srand(time(0));
   int r;
-  
-  printf("%i\n", rcv_header->seq_num);
+
+  //timeout variables
+  int result;
+  fd_set rset;
+  struct timeval timeout;
   
   //send packets until last ACK is received
-  while (data_count != file_length) {
+  while (latest_ACK != file_length) {
 
     int old_rcv = rcv_header->seq_num;
     r = rand() % 100;
+    //printf("Random number: %i\n", r);
     
     //once all packets in window sent, check for ACK
-    if (packets_in_flight == CWnd) {
+    if (packets_in_flight == CWnd || data_count == file_length) {
 
       memset(buffer, 0, PCKT_SIZE);
-      printf("Doing some flow control. Waiting for an ACK.\n");
+      printf("Waiting for an ACK.\n");
       
+      //timeout select
+      timeout.tv_sec = 6;
+      timeout.tv_usec = 0;
+      FD_ZERO(&rset);
+      FD_SET(sockfd, &rset);
+      result = select(sockfd + 1, &rset, NULL, NULL, &timeout);
 
-      do {
-	//waiting for an ACK
-	n = recvfrom(sockfd, buffer, 2, 0, (struct sockaddr *) &cli_addr, &clilen);
-
-	//check for timeout
-	clock_gettime(CLOCK_MONOTONIC, &end);
-	time_t difference = end.tv_nsec - start.tv_nsec;
-	if (difference > TIMEOUT) {
-	  printf("Oops, timeout occurred after %d nanoseconds\n", difference);
-	  timeout_occurred = 1;
-	  break;
-	}
+      if (result < 0) {
+	error("ERROR on select.");
       }
-      while (n < 0);
-      
+      else if (result == 0) {
+	timeout_occurred = 1;
+	printf("Select returned 0.\n"); 
+      }
+      else if (FD_ISSET(sockfd, &rset)) {
+	//waiting for an ACK
+      recvlen = recvfrom(sockfd, buffer, 4, 0, (struct sockaddr *) &cli_addr, &clilen);
+      if (recvlen == 0)
+	break;
+      }
+      else
+	break;
+
       //Packet loss and corruption, we simply ignore the packet.
       if (pckt_corr >= r) {
 	printf("Packet corruption.\n");
-	       continue;
+	continue;
       }
       else if (pckt_loss >= r) {
 	printf("Packet loss.\n");
@@ -189,27 +194,34 @@ int main(int argc, char *argv[])
       //Checking and incrementing duplicate ACKs
       if (rcv_header->seq_num == old_rcv) {
 	dup_ACK++;
-      }
+	printf("Received duplicate ACK %i.\n", dup_ACK);
+	}
 
-      if (dup_ACK == 3 || timeout_occurred == 1) {
+      if (dup_ACK == 3 || timeout_occurred) {
 	//go-back-n retransmission
-	packets_in_flight = 0;
+	/*	packets_in_flight = 0;
 	data_count = rcv_header->seq_num;
-	printf("Duplicate ACKs received. Retransmitting window from byte number %i\n", data_count);
+	if (dup_ACK == 3) 
+	  printf("Duplicate ACKs received. Retransmitting window from byte number %i\n", data_count);
+	if (timeout_occurred)
+	  printf("Timeout occurred.\n");
 	dup_ACK = 0;
-	timeout_occurred = 0;
-	clock_gettime(CLOCK_MONOTONIC, &start);
+	timeout_occurred = 0; */
       }
       else if (rcv_header->seq_num != old_rcv) {
-	rcv_header->seq_num = data_count;
-	printf("ACK %i was received!\n", (rcv_header->seq_num) + 1);
-	CWnd_thresh += 1;
-	packets_in_flight--;
+	printf("ACK %i was received!\n", rcv_header->seq_num);
+	latest_ACK = rcv_header->seq_num;
+	if (packets_in_flight > 0)
+	  packets_in_flight--;
+	printf("Packets in flight: %i.\n", packets_in_flight);
       }
     }
 
+    if (data_count == file_length)
+      continue;
+    
     memset(packet, 0, PCKT_SIZE);
-
+    
     //fill in header information
     header->type = DATA;
     header->seq_num = data_count;
@@ -224,25 +236,48 @@ int main(int argc, char *argv[])
       }
       payload[i] = file_data[data_count];
       data_count++;
-      printf("Data count is now %i\n", data_count);
+      //printf("Data count is now %i\n", data_count);
     }
     header->size = i;
 
-    printf("This packet contains the following: %s\n", payload);
+    //printf("This packet contains the following: %s\n", payload);
     
     //send packet to client based on payload size + 2 bytes of header
-    n = sendto(sockfd, packet, (header->size) + 2, 0, (struct sockaddr *) &cli_addr, clilen);
+    n = sendto(sockfd, packet, header->size + 4, 0, (struct sockaddr *) &cli_addr, clilen);
     if (n < 0)
       error("ERROR on packet send.");
 
-    if (first_packet == 1) {
-      clock_gettime(CLOCK_MONOTONIC, &start);
-      first_packet = 0;
-    }
-
-    printf("Sent packet sequence number %i\n", header->seq_num);
-    packets_in_flight++;
+    //printf("There are %i bytes in the payload.\n", header->size);
     
+    printf("Sent packet sequence number %i.\n", header->seq_num);
+    packets_in_flight++;
+  }
+
+  //Send final packet
+  header->type = ACK;
+  header->seq_num = 0;
+  header->size = 0;
+  memset(payload, 0, MAX_PAYLOAD); 
+
+  while (1) { 
+    n = sendto(sockfd, packet, 4, 0, (struct sockaddr *) &cli_addr, clilen);
+
+    timeout.tv_sec = 3;
+    timeout.tv_usec = 0;
+    FD_ZERO(&rset);
+    FD_SET(sockfd, &rset);
+    result = select(sockfd + 1, &rset, NULL, NULL, &timeout);
+
+    if (result < 0) {
+      error("ERROR on select.");
+    }
+    else if (result == 0) {
+      break;
+    }
+    else if (FD_ISSET(sockfd, &rset)) {
+      //In case client didn't get last ACK, is sending more requests
+      recvlen = recvfrom(sockfd, buffer, 4, 0, (struct sockaddr *) &cli_addr, &clilen);
+    }
   }
   
   //close connection
