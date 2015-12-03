@@ -105,7 +105,7 @@ int main(int argc, char* argv[]) {
   while (1) {
 
     int r = rand() % 100;
-    
+     
     recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
 
     printf("Received packet with sequence number %i.\n", head->seq_num);
@@ -142,9 +142,21 @@ int main(int argc, char* argv[]) {
   }
 
   do {
-    n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
+    int r = rand() % 100;
+
     recv = recvfrom(socketfd, buffer, HEADER_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
-  } while (head->type != ACK);
- 
+
+    if (loss >= r) {
+      printf("Final ACK is lost.\n", head->seq_num);
+      continue;
+    }
+    else if (corruption >= r) 
+      printf("Final ACK is corrupted.\n", head->seq_num);
+    
+    n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
+      } while (head->type != ACK);
+
+  printf("Final ACK is received! Client shutting down.\n");
+  
   close(socketfd);
 }
