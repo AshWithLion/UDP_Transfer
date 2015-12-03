@@ -30,7 +30,6 @@ typedef struct header {
     unsigned int type:2;
     unsigned int seq_num:20; //sequence number of packet sent
     unsigned int size:10;    //size of payload
-    char data[PCKT_SIZE];
 } header_t;
 
 double simulation() {
@@ -49,8 +48,9 @@ int main(int argc, char* argv[]) {
     struct sockaddr_in server_address;
     struct hostent *server;
     socklen_t server_length;
+    char buffer_out[PCKT_SIZE];
+    char buffer_in[PCKT_SIZE];
     FILE *file_for_pkt;
-    
     
     // check argument orders
     if (argc < 6) {
@@ -87,100 +87,140 @@ int main(int argc, char* argv[]) {
     }
     
     // build request
-    header_t out_pck, in_pck;
+    header_t* out_pck = (header_t*) &buffer_out;
+    char* payload_out = buffer_out + 4;
+
+    printf("Building request for %s\n", file_name);
+
+    out_pck->type = REQ;
+    out_pck->seq_num = 0;
+    strcpy(payload_out, file_name);
+    out_pck->size = sizeof(payload_out);
     
+
+    //header_t out_pck, in_pck;
+    /*
     printf("Building request for %s\n", file_name);
     memset((char *) &out_pck, 0, sizeof(out_pck));
     out_pck.type = REQ;
     out_pck.seq_num = 0;
     out_pck.size = strlen(file_name) + 1;
     strcpy(out_pck.data, file_name);
-    
+    */
+
     server_length = sizeof(server_address);
     //set space for server_address
     memset((char *) &server_address, 0, server_length);
     //IPv4
     server_address.sin_family = AF_INET;
     
-    memcpy((char *) &server_address.sin_addr.s_addr,(char *) server->h_addr, server->h_length);
+    memcpy((char *) &server_address.sin_addr.s_addr, (char *) server->h_addr, server->h_length);
     server_address.sin_port = htons(port_number);
     
     // send the request
-    if (sendto(socketfd, &out_pck, sizeof(&out_pck), 0, (struct sockaddr*) &server_address, server_length) < 0)
+    if (sendto(socketfd, buffer_out, sizeof(buffer_out), 0, (struct sockaddr*) &server_address, server_length) < 0)
     {
         error("ERROR sending request\n");
         
     }
-    printf("File requested: %s\n", out_pck.data);
+    printf("File requested: %s\n", payload_out);
     
-    current_position = 0;
+    current_position = 1;
     file_for_pkt = fopen(strcat(file_name, "_copy"), "wb");
     
     // ACK preparing
-    memset((char *) &out_pck, 0, sizeof(out_pck));
+    /*memset((char *) &out_pck, 0, sizeof(out_pck));
     out_pck.seq_num = current_position - 1;
     out_pck.type = ACK; // ACK packet
-    out_pck.size = 0;
+    out_pck.size = 0;*/
     
-    srand(time(NULL));
+    //memset(&buffer_out, 0, sizeof(buffer_out));
+    out_pck = (header_t*) &buffer_out;
+    //memset((char *) &out_pck, 0, sizeof(out_pck));
+    out_pck->type = ACK;
+    out_pck->seq_num = current_position-1;
+    out_pck->size = 0;
+
+    /*
+    char* ACK_packet[4];
+    header_t* ACK_head = (header_t*) &ACK_packet;
+    int ACK_number = 0;
+    ACK_head->type = ACK;
+    ACK_head->seq_num = 0;
+    ACK_head->size = 0;
+   */
+    srand(time(0));
     
+    header_t* in_pck = (header_t*) &buffer_in;
+    char* payload_in = buffer_in + 4;
+    
+
     // Watching responses
     while (1) {
-        if (recvfrom(socketfd, &in_pck, sizeof(in_pck),0, (struct sockaddr*) &server_address, &server_length) < 0) {
+        if (recvfrom(socketfd, buffer_in, sizeof(buffer_in),0, (struct sockaddr*) &server_address, &server_length) < 0) {
             printf("We lost packet\n");
         } else {
+        //printf("Buffer in: %d\n", in_pck->seq_num);
             // Use simulated situation: loss & corruption
             if (simulation() < loss) {
-                printf("Packet Loss occurred: %d\n", in_pck.seq_num);
+                printf("Packet Loss occurred: %d\n", in_pck->seq_num);
                 continue;
             } else if (simulation() < corruption) {
-                printf("Packet Corruption occurred: %d\n", in_pck.seq_num);
+                printf("Packet Corruption occurred: %d\n", in_pck->seq_num);
                 // send again the last ACK
-                if (sendto(socketfd, &out_pck, sizeof(out_pck), 0, (struct sockaddr*) &server_address, server_length) < 0) {
+                if (sendto(socketfd, buffer_out, sizeof(buffer_out), 0, (struct sockaddr*) &server_address, server_length) < 0) {
                     error("There is an error while resending ACK\n");
                 }
-                printf("ACKed packet: %d", out_pck.seq_num);
+                printf("ACKed packet: %d\n", out_pck->seq_num);
                 continue;
             }
-            printf("ACKed packet: %d", out_pck.seq_num);
+           // printf("ACKed packet: %d\n", out_pck->seq_num);
             
             // See number of packet and type
-            if (in_pck.seq_num > current_position) {
-                printf("Ignore this sequence number %d: should be %d\n", in_pck.seq_num, current_position);
+           /* if (in_pck->seq_num > current_position) {
+                printf("Ignore this sequence number %d: should be %d\n", in_pck->seq_num, current_position);
                 continue;
-            } else if (in_pck.seq_num < current_position) {
-                printf("Ignore this sequence number %d: should be %d\n", in_pck.seq_num, current_position);
-                out_pck.seq_num = in_pck.seq_num;
-            } else {
+            } else if (in_pck->seq_num < current_position) {
+                printf("Ignore this sequence number %d: should be %d\n", in_pck->seq_num, current_position);
+                out_pck->seq_num = in_pck->seq_num;
+            } else {*/
                 // Fin signal is arrived
-                if (in_pck.type == FIN) {
+                if (in_pck->type == FIN) {
+            printf("FIN received. break");
                     break;
-                } else if (in_pck.type != DATA) {
-                    printf("Ignore this packet %d: not a data packet\n", in_pck.seq_num);
+                } else if (in_pck->type != DATA) {
+                    printf("Ignore this packet %d: not a data packet\n", in_pck->seq_num);
                     continue;
                 }
-                
-                fwrite(in_pck.data, 1, in_pck.size, file_for_pkt);
-                out_pck.seq_num = current_position;
-                current_position = current_position + 1;
-                if (sendto(socketfd, &out_pck, sizeof(out_pck), 0, (struct sockaddr*) &server_address, server_length) < 0) {
+                fwrite(payload_in, 1, in_pck->size, file_for_pkt);
+                out_pck->seq_num = in_pck->seq_num;
+                current_position++;
+        printf("current position: %d\n", current_position);
+                if (sendto(socketfd, buffer_out, sizeof(buffer_out), 0, (struct sockaddr*) &server_address, server_length) < 0) {
                     error ("There is an error while sending ACK\n");
                 }
-                printf("Currently ACKed packet: %d\n", out_pck.seq_num);          
-            }
+                printf("Currently ACKed packet: %d\n", out_pck->seq_num);          
+            //}
         }
         
     }
     
     // Send FIN signal
+    /*
     memset((char *) &out_pck, 0, sizeof(out_pck));
     out_pck.type = FIN;
     out_pck.size = 0;
     out_pck.seq_num = current_position;
-    if (sendto(socketfd, &out_pck, sizeof(out_pck), 0, (struct sockaddr*) &server_address, server_length) < 0) {
+    */
+    memset((char *) &out_pck, 0, sizeof(out_pck));
+    out_pck->type = FIN;
+    out_pck->size = 0;
+    out_pck->seq_num = current_position;
+
+    if (sendto(socketfd, buffer_out, sizeof(buffer_out), 0, (struct sockaddr*) &server_address, server_length) < 0) {
         error("There is an error while sending FIN\n");
     }
-    printf("ACK'd packet: %d", out_pck.seq_num);
+    printf("ACK'd packet: %d", out_pck->seq_num);
     
     printf("Exiting client\n");
     fclose(file_for_pkt);
