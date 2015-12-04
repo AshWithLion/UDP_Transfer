@@ -48,10 +48,8 @@ int main(int argc, char *argv[])
   char buffer[PCKT_SIZE];
   char filename[MAX_PAYLOAD];
 
-  if (argc < 5) {
-    fprintf(stderr,"ERROR, missing port number\n");
-    exit(1);
-  }
+  if (argc != 5) 
+    error("ERROR Usage: ./server <port_number> CWnd packet_loss packet_corruption");
   
   //change this into an arg later
   int CWnd = atoi(argv[2]);
@@ -286,6 +284,7 @@ int main(int argc, char *argv[])
   }
   
   //close connection
+  free(file_data);
   close(sockfd);
   
   return 0;

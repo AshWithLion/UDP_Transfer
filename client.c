@@ -46,6 +46,10 @@ int main(int argc, char* argv[]) {
   int file_fd;
   int recv = 0;
   int n = 0;
+
+  if (argc < 6)
+    error("ERROR Usage: ./client <host_name> <port_number> <file_name> packet_loss packet_corruption");
+
   
   host_name = argv[1];
   port_number = atoi(argv[2]);
