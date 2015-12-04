@@ -1,4 +1,3 @@
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,13 +99,38 @@ int main(int argc, char* argv[]) {
   ACK_head->type = ACK;
   ACK_head->seq_num = 0;
   ACK_head->size = 0;
+
+  //timeout variables
+  int result;
+  fd_set rset;
+  struct timeval timeout;
+  
   
   //receive data packets
   while (1) {
 
     int r = rand() % 100;
-     
-    recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
+
+    timeout.tv_sec = 3;
+    timeout.tv_usec = 0;
+    FD_ZERO(&rset);
+    FD_SET(socketfd, &rset);
+    result = select(socketfd + 1, &rset, NULL, NULL, &timeout);
+
+    if (result < 0) {
+      error("ERROR on select");
+    }
+    else if (result == 0) {
+      printf("Timeout. Either too many packets lost or server not responding. Exit.\n");
+      exit(1);
+    }
+    else if (FD_ISSET(socketfd, &rset)) {
+      recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
+      if (recv == 0)
+	break;
+    }
+    else
+      break;
 
     printf("Received packet with sequence number %i.\n", head->seq_num);
     
@@ -141,10 +165,31 @@ int main(int argc, char* argv[]) {
     printf("\n");
   }
 
+  
+  //Send and receive the last ACK.
   do {
     int r = rand() % 100;
 
-    recv = recvfrom(socketfd, buffer, HEADER_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
+    timeout.tv_sec = 3;
+    timeout.tv_usec = 0;
+    FD_ZERO(&rset);
+    FD_SET(socketfd, &rset);
+    result = select(socketfd + 1, &rset, NULL, NULL, &timeout);
+
+    if (result < 0) {
+      error("ERROR on select");
+    }
+    else if (result == 0) {
+      printf("Timeout. Either too many packets lost or server not responding. Exit.\n");
+      exit(1);
+    }
+    else if (FD_ISSET(socketfd, &rset)) {
+      recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
+      if (recv == 0)
+	break;
+    }
+    else
+      break;
 
     if (loss >= r) {
       printf("Final ACK is lost.\n", head->seq_num);

@@ -103,15 +103,16 @@ int main(int argc, char *argv[])
   file_fd = open(filename, O_RDONLY);
   if (file_fd < 0) {
     //send message to client
-    header->type = FIN;
-    header->seq_num = 1;
+    /*header->type = FIN;
+    header->seq_num = 0;
     header->size = strlen(NO_FILE_MSG);
     strcpy(payload, NO_FILE_MSG);
 
     n = sendto(sockfd, packet, (header->size) + HEADER_SIZE, 0, (struct sockaddr *) &cli_addr, clilen);
-
+    */
     //throw error
     error("Error: File does not exist.");
+    close(sockfd);
   }
   
   //find size of the file
