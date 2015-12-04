@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
   int file_fd;
   int recv = 0;
   int n = 0;
-  
+
   host_name = argv[1];
   port_number = atoi(argv[2]);
   file_name = argv[3];
@@ -82,10 +82,10 @@ int main(int argc, char* argv[]) {
   head->seq_num = 0;
   strcpy(payload, file_name);
   head->size = strlen(payload);
-  
+
   // send the request
   if (sendto(socketfd, buffer, head->size + HEADER_SIZE, 0, (struct sockaddr*) &server_address, server_length) < 0)
-      error("ERROR sending request\n");
+    error("ERROR sending request\n");
 
   file_fd = open(file_name, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
   if (file_fd < 0)
@@ -100,53 +100,28 @@ int main(int argc, char* argv[]) {
   ACK_head->seq_num = 0;
   ACK_head->size = 0;
 
-  //timeout variables
-  int result;
-  fd_set rset;
-  struct timeval timeout;
-  
-  
   //receive data packets
   while (1) {
 
     int r = rand() % 100;
 
-    timeout.tv_sec = 3;
-    timeout.tv_usec = 0;
-    FD_ZERO(&rset);
-    FD_SET(socketfd, &rset);
-    result = select(socketfd + 1, &rset, NULL, NULL, &timeout);
-
-    if (result < 0) {
-      error("ERROR on select");
-    }
-    else if (result == 0) {
-      printf("Timeout. Either too many packets lost or server not responding. Exit.\n");
-      exit(1);
-    }
-    else if (FD_ISSET(socketfd, &rset)) {
-      recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
-      if (recv == 0)
-	break;
-    }
-    else
-      break;
+    recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
 
     printf("Received packet with sequence number %i.\n", head->seq_num);
-    
+
     if (loss >= r) {
       printf("Packet with sequence number %i lost.\n", head->seq_num);
       continue;
     }
-    else if (corruption >= r) 
+    else if (corruption >= r)
       printf("Packet with sequence number %i corrupted.\n", head->seq_num);
     else if (head->seq_num == ACK_number) {
-      printf("Received a packet!\n");  
+      printf("Received a packet!\n");
       n = write(file_fd, payload, head->size);
 
       ACK_number = head->seq_num + head->size;
       printf("Sending ACK %i.\n", ACK_number);
-    
+
       //send an ACK
       ACK_head->seq_num = ACK_number;
 
@@ -159,49 +134,29 @@ int main(int argc, char* argv[]) {
       //Ignore all out of sequence packets
       printf("Duplicate ACK. Still expecting packet %i.\n", ACK_head->seq_num);
     }
-    
+
     n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
 
     printf("\n");
   }
 
-  
-  //Send and receive the last ACK.
   do {
     int r = rand() % 100;
 
-    timeout.tv_sec = 3;
-    timeout.tv_usec = 0;
-    FD_ZERO(&rset);
-    FD_SET(socketfd, &rset);
-    result = select(socketfd + 1, &rset, NULL, NULL, &timeout);
-
-    if (result < 0) {
-      error("ERROR on select");
-    }
-    else if (result == 0) {
-      printf("Timeout. Either too many packets lost or server not responding. Exit.\n");
-      exit(1);
-    }
-    else if (FD_ISSET(socketfd, &rset)) {
-      recv = recvfrom(socketfd, buffer, PCKT_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
-      if (recv == 0)
-	break;
-    }
-    else
-      break;
+    n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
+    
+    recv = recvfrom(socketfd, buffer, HEADER_SIZE, 0, (struct sockaddr *) &server_address, &server_length);
 
     if (loss >= r) {
       printf("Final ACK is lost.\n", head->seq_num);
       continue;
     }
-    else if (corruption >= r) 
+    else if (corruption >= r)
       printf("Final ACK is corrupted.\n", head->seq_num);
     
-    n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
-      } while (head->type != ACK);
+  } while (head->type != ACK);
 
   printf("Final ACK is received! Client shutting down.\n");
-  
+
   close(socketfd);
 }
