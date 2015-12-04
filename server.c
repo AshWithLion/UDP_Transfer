@@ -128,7 +128,8 @@ int main(int argc, char *argv[])
   int latest_ACK = 0;
   int old_rcv = 0;
   srand(time(0));
-  int r;
+  int r_l;
+  int r_c;
 
   //timeout variables
   int result;
@@ -140,8 +141,8 @@ int main(int argc, char *argv[])
 
     printf("\n");
     
-    r = rand() % 100;
-    //printf("Random number: %i\n", r);
+    r_l = rand() % 100;
+    r_c = rand() % 100;
     
     //once all packets in window sent, check for ACK
     if (packets_in_flight == CWnd || data_count == file_length) {
@@ -172,11 +173,11 @@ int main(int argc, char *argv[])
 
       //Packet loss and corruption, we simply ignore the packet.
       if (!timeout_occurred) {
-	if (pckt_corr >= r) {
+	if (pckt_corr >= r_c && pckt_corr != 0) {
 	  printf("Packet corruption.\n");
 	  continue;
 	}
-	else if (pckt_loss >= r) {
+	else if (pckt_loss >= r_l && pckt_loss != 0) {
 	  printf("Packet loss.\n");
 	  continue;
 	}

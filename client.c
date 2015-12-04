@@ -109,7 +109,8 @@ int main(int argc, char* argv[]) {
   //receive data packets
   while (1) {
 
-    int r = rand() % 100;
+    int r_c = rand() % 100;
+    int r_l = rand() % 100;
     
     memset(buffer, 0, PCKT_SIZE);
 
@@ -117,12 +118,12 @@ int main(int argc, char* argv[]) {
 
     printf("Received packet with sequence number %i.\n", head->seq_num);
     
-    if (loss >= r) {
-      printf("Packet with sequence number %i lost.\n", head->seq_num);
+    if (loss >= r_l && loss != 0) {
+      printf("Packet with sequence number %i lost.\n\n", head->seq_num);
       continue;
     }
-    else if (corruption >= r) 
-      printf("Packet with sequence number %i corrupted.\n", head->seq_num);
+    else if (corruption >= r_c && corruption != 0) 
+      printf("Packet with sequence number %i corrupted.\n Send a duplicate ACK.\n", head->seq_num);
     else if (head->seq_num == ACK_number) {
       printf("Received a packet!\n");  
       n = write(file_fd, payload, head->size);
@@ -142,7 +143,7 @@ int main(int argc, char* argv[]) {
       //Ignore all out of sequence packets
       printf("Duplicate ACK. Still expecting packet %i.\n", ACK_head->seq_num);
     }
-    
+
     n = sendto(socketfd, ACK_packet, HEADER_SIZE, 0, (struct sockaddr *) &server_address, server_length);
 
     printf("\n");
